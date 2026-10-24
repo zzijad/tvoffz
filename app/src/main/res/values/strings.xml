@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TVOffZ</string>
+    <string name="app_sub">Automatsko gašenje</string>
+    <string name="a11y_desc">TVOffZ u zadato vreme prikazuje odbrojavanje, gasi box ili izlazi na Home ekran, i zaključava aplikacije do zadatog vremena.</string>
+
+    <string name="next_label">SLEDEĆE</string>
+    <string name="settings_label">PODEŠAVANJA</string>
+    <string name="status_on">Servis je aktivan</string>
+    <string name="status_off">Raspored je isključen</string>
+    <string name="next_none">Nijedan dan nije izabran</string>
+    <string name="warn_before">Upozorenje %1$d s pre toga</string>
+    <string name="secs_value">%1$d s</string>
+    <string name="lock_until">Aplikacije zaključane do %1$s</string>
+    <string name="lock_none">Bez zaključavanja aplikacija</string>
+    <string name="pin_hint">Postavi PIN da zaštitiš zaključavanje</string>
+    <string name="hints">▲▼ biranje    ◀▶ menjanje    OK potvrda</string>
+    <string name="today">danas</string>
+    <string name="tomorrow">sutra</string>
+
+    <string name="row_enabled">Uključeno</string>
+    <string name="row_time">Vreme</string>
+    <string name="row_lock">Zaključano do</string>
+    <string name="row_action">Akcija</string>
+    <string name="row_secs">Odbrojavanje</string>
+    <string name="row_days">Dani</string>
+    <string name="on">Uključeno</string>
+    <string name="off">Isključeno</string>
+    <string name="action_shutdown">Ugasi box</string>
+    <string name="action_home">Izlaz na Home</string>
+    <string name="action_label_shutdown">Gašenje boxa</string>
+    <string name="action_label_home">Izlaz na Home ekran</string>
+    <string name="btn_test">Testiraj odmah</string>
+    <string name="pin_set">Postavi PIN</string>
+    <string name="pin_change">Promeni PIN</string>
+    <string name="earlier">Ranije</string>
+    <string name="later">Kasnije</string>
+    <string name="service_off">Servis nije uključen</string>
+
+    <string name="setup_title">Uključi TVOffZ servis</string>
+    <string name="setup_desc">Bez ovog servisa aplikacija ne može da prikaže odbrojavanje niti da ugasi box. Uključuje se samo jednom.</string>
+    <string name="setup_step1">Podešavanja → Podešavanja uređaja</string>
+    <string name="setup_step2">Pristupačnost</string>
+    <string name="setup_step3">TVOffZ → Uključi</string>
+    <string name="btn_open_settings">Otvori podešavanja</string>
+    <string name="btn_later">Kasnije</string>
+
+    <string name="cd_title_shutdown">Box će se ugasiti</string>
+    <string name="cd_title_home">Izlaz iz aplikacije</string>
+    <string name="cd_title_in">%1$s za %2$d s</string>
+    <string name="cd_sub_shutdown">Zakazano gašenje u %1$s</string>
+    <string name="cd_sub_home">Prelazak na Home ekran u %1$s</string>
+    <string name="cd_sub_test">Probno pokretanje</string>
+    <string name="cd_seconds">sekundi</string>
+    <string name="cd_cancel">Otkaži</string>
+    <string name="cd_hint">Pritisni OK na daljinskom da otkažeš</string>
+    <string name="cd_cancelled">Otkazano za danas</string>
+    <string name="cd_cancelled_test">Test je otkazan</string>
+
+    <string name="lock_title">Aplikacije su zaključane</string>
+    <string name="lock_desc">Pokretanje aplikacija je blokirano do %1$s. Unesi PIN da otključaš ranije.</string>
+    <string name="lock_desc_nopin">Pokretanje aplikacija je blokirano do %1$s.</string>
+    <string name="lock_unlocked">Otključano do kraja zaključavanja</string>
+    <string name="btn_back_home">Nazad na Home</string>
+
+    <string name="pin_enter_caps">UNESI PIN</string>
+    <string name="pin_new_caps">NOVI PIN</string>
+    <string name="pin_confirm_caps">POTVRDI PIN</string>
+    <string name="pin_to_cancel">PIN ZA OTKAZIVANJE</string>
+    <string name="pin_wrong">Pogrešan PIN, pokušaj ponovo.</string>
+    <string name="pin_mismatch">PIN-ovi se ne poklapaju. Kreni ispočetka.</string>
+    <string name="pin_saved">PIN je sačuvan</string>
+    <string name="pin_verify_title">Unesi PIN</string>
+    <string name="pin_verify_desc">Podešavanja TVOffZ su zaštićena PIN-om.</string>
+    <string name="pin_setup_title">Postavi PIN</string>
+    <string name="pin_setup_desc">PIN štiti podešavanja TVOffZ i otključava aplikacije pre isteka zaključavanja.</string>
+    <string name="pin_step1">Korak 1 od 2 · Unesi novi PIN</string>
+    <string name="pin_step2">Korak 2 od 2 · Ponovi PIN</string>
+    <string name="pin_clear">Obriši sve</string>
+    <string name="pin_back">Obriši poslednju cifru</string>
+</resources>

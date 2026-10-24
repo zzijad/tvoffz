@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#47BDFF</color>
+    <color name="bg">#0E1116</color>
+    <color name="surface">#171C23</color>
+    <color name="surface2">#202731</color>
+    <color name="surface_focus">#262E39</color>
+    <color name="text">#EEF1F5</color>
+    <color name="muted">#9AA4B2</color>
+    <color name="on_accent">#0B1620</color>
+    <color name="outline">#3A4350</color>
+    <color name="dot_empty">#4A5462</color>
+    <color name="ring_track">#2A323D</color>
+    <color name="icon_tile">#12293A</color>
+    <color name="error">#FF8A8A</color>
+    <color name="ok">#4ADE80</color>
+    <color name="idle">#6B7480</color>
+    <color name="scrim">#9E05070A</color>
+    <color name="white">#FFFFFF</color>
+</resources>
