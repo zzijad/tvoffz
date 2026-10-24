@@ -90,7 +90,9 @@ class PinPadView(context: Context) : LinearLayout(context) {
                 })
                 keys += b
             }
-            addView(row)
+            // WRAP_CONTENT: red tastera mora da odredi širinu cele tastature,
+            // inače je tastatura uska kao red tačkica i desni tasteri se odseku.
+            addView(row, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
         }
     }
 
