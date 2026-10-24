@@ -11,7 +11,8 @@ Radi bez roota, preko Accessibility (Pristupačnost) servisa.
 
 ## Instalacija
 
-1. Skini najnoviji `TVOffZ-x.y.apk` iz [Releases](../../releases) (na boxu npr. preko aplikacije *Downloader*).
+1. Skini najnoviji APK iz [Releases](../../releases). Na boxu, u aplikaciji *Downloader*, ukucaj:
+   `github.com/zzijad/tvoffz/releases/latest/download/TVOffZ.apk`
 2. Dozvoli instalaciju iz nepoznatih izvora i instaliraj APK.
 3. Otvori TVOffZ i uključi servis:
    **Podešavanja → Podešavanja uređaja → Pristupačnost → TVOffZ → Uključi**.
@@ -40,5 +41,5 @@ adb shell settings put secure accessibility_enabled 1
 
 ## Build
 
-GitHub Actions pravi APK na svaki push; tag `v*` (npr. `v1.0`) pravi Release sa APK-om.
+GitHub Actions na svaki push na `main` napravi APK i objavi ga kao novi Release (`v1.0.N`).
 APK je potpisan ključem `app/debug.keystore` iz repoa, pa se nova verzija uvek instalira preko stare.
