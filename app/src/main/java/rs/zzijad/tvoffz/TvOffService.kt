@@ -412,9 +412,8 @@ class TvOffService : AccessibilityService() {
         val cfg = Prefs.load(this)
         if (!cfg.pinToSleep || !Prefs.hasPin(this)) return
         val now = System.currentTimeMillis()
+        // Bez PIN-a se gasi samo zakazano gašenje (ili posle tačnog PIN-a).
         if (now < Prefs.allowSleepUntil(this)) return
-        // Noću, u periodu zaključavanja, gašenje je uvek dozvoljeno.
-        if (Schedule.lockEnd(cfg, now) != null) return
 
         // Drži procesor budnim dok ne probudimo ekran.
         pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvoffz:guard").acquire(5_000L)
