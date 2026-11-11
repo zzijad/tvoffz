@@ -76,6 +76,11 @@
     <string name="pin_setup_desc">PIN štiti podešavanja TVOffZ i otključava aplikacije pre isteka zaključavanja.</string>
     <string name="pin_step1">Korak 1 od 2 · Unesi novi PIN</string>
     <string name="pin_step2">Korak 2 od 2 · Ponovi PIN</string>
+    <string name="row_pin_sleep">PIN za gašenje</string>
+    <string name="need_pin_first">Prvo postavi PIN</string>
+    <string name="guard_title">Gašenje je zaključano</string>
+    <string name="guard_desc">Unesi PIN da ugasiš box.</string>
+    <string name="guard_back">Nazad = nastavi gledanje</string>
     <string name="pin_clear">Obriši sve</string>
     <string name="pin_back">Obriši poslednju cifru</string>
 </resources>

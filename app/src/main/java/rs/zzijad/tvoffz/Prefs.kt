@@ -12,6 +12,8 @@ data class Config(
     val secs: Int = 60,
     /** Bit 0 = ponedeljak … bit 6 = nedelja. */
     val days: Int = 0b1111111,
+    /** Gašenje dugmetom za napajanje van rasporeda traži PIN. */
+    val pinToSleep: Boolean = false,
 )
 
 object Prefs {
@@ -29,6 +31,7 @@ object Prefs {
             shutdown = p.getBoolean("shutdown", d.shutdown),
             secs = p.getInt("secs", d.secs),
             days = p.getInt("days", d.days),
+            pinToSleep = p.getBoolean("pinToSleep", d.pinToSleep),
         )
     }
 
@@ -40,6 +43,7 @@ object Prefs {
             .putBoolean("shutdown", cfg.shutdown)
             .putInt("secs", cfg.secs)
             .putInt("days", cfg.days)
+            .putBoolean("pinToSleep", cfg.pinToSleep)
             .apply()
     }
 
@@ -70,5 +74,12 @@ object Prefs {
 
     fun setUnlockedUntil(c: Context, millis: Long) {
         sp(c).edit().putLong("unlockedUntil", millis).apply()
+    }
+
+    /** Do kada je gašenje dozvoljeno bez PIN-a (zakazano gašenje ili posle tačnog PIN-a). */
+    fun allowSleepUntil(c: Context): Long = sp(c).getLong("allowSleepUntil", 0L)
+
+    fun setAllowSleepUntil(c: Context, millis: Long) {
+        sp(c).edit().putLong("allowSleepUntil", millis).commit()
     }
 }

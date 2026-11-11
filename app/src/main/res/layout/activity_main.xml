@@ -168,13 +168,22 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
-        <!-- Desno: podešavanja -->
-        <LinearLayout
+        <!-- Desno: podešavanja (skroluje se D-padom kad ne stane) -->
+        <ScrollView
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_marginStart="40dp"
             android:layout_weight="1"
-            android:orientation="vertical">
+            android:fadingEdgeLength="24dp"
+            android:requiresFadingEdge="vertical"
+            android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
 
             <TextView
                 style="@style/Caps"
@@ -270,6 +279,20 @@
 
                 <TextView
                     style="@style/RowLabel"
+                    android:drawableStart="@drawable/ic_power"
+                    android:text="@string/row_pin_sleep" />
+
+                <Button
+                    android:id="@+id/btnPinSleep"
+                    style="@style/Btn"
+                    android:layout_width="150dp"
+                    android:layout_height="40dp" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/Row">
+
+                <TextView
+                    style="@style/RowLabel"
                     android:text="@string/row_secs" />
 
                 <ImageButton
@@ -357,6 +380,7 @@
                     android:text="@string/pin_change" />
             </LinearLayout>
         </LinearLayout>
+        </ScrollView>
     </LinearLayout>
 
     <!-- ============ SERVIS NIJE UKLJUČEN ============ -->

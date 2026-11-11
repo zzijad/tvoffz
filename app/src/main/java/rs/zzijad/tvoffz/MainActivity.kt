@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var btnHome: Button
     private lateinit var tvSecs: TextView
     private lateinit var btnPin: Button
+    private lateinit var btnPinSleep: Button
     private lateinit var btnOpenSettings: Button
     private lateinit var dayButtons: List<Button>
 
@@ -64,6 +65,7 @@ class MainActivity : Activity() {
         btnHome = findViewById(R.id.btnHome)
         tvSecs = findViewById(R.id.tvSecs)
         btnPin = findViewById(R.id.btnPin)
+        btnPinSleep = findViewById(R.id.btnPinSleep)
         btnOpenSettings = findViewById(R.id.btnOpenSettings)
         dayButtons = listOf(
             R.id.day0, R.id.day1, R.id.day2, R.id.day3, R.id.day4, R.id.day5, R.id.day6,
@@ -106,13 +108,15 @@ class MainActivity : Activity() {
             }
         }
 
-        btnPin.setOnClickListener {
-            childOpen = true
-            startActivityForResult(
-                Intent(this, PinActivity::class.java)
-                    .putExtra(PinActivity.EXTRA_MODE, PinActivity.MODE_SETUP),
-                REQ_SETUP,
-            )
+        btnPin.setOnClickListener { openPinSetup() }
+
+        btnPinSleep.setOnClickListener {
+            if (!cfg.pinToSleep && !Prefs.hasPin(this)) {
+                Toast.makeText(this, R.string.need_pin_first, Toast.LENGTH_LONG).show()
+                openPinSetup()
+            } else {
+                update { it.copy(pinToSleep = !it.pinToSleep) }
+            }
         }
 
         btnOpenSettings.setOnClickListener { openAccessibilitySettings() }
@@ -156,6 +160,15 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openPinSetup() {
+        childOpen = true
+        startActivityForResult(
+            Intent(this, PinActivity::class.java)
+                .putExtra(PinActivity.EXTRA_MODE, PinActivity.MODE_SETUP),
+            REQ_SETUP,
+        )
+    }
+
     private fun update(change: (Config) -> Config) {
         cfg = change(cfg)
         Prefs.save(this, cfg)
@@ -194,6 +207,9 @@ class MainActivity : Activity() {
         val hasPin = Prefs.hasPin(this)
         tvPinHint.visibility = if (!noLock && !hasPin) View.VISIBLE else View.GONE
         btnPin.setText(if (hasPin) R.string.pin_change else R.string.pin_set)
+        val guardOn = cfg.pinToSleep && hasPin
+        btnPinSleep.isActivated = guardOn
+        btnPinSleep.setText(if (guardOn) R.string.on else R.string.off)
     }
 
     private fun dayLabel(now: Long, t: Long): String =

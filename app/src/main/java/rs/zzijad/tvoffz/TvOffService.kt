@@ -1,7 +1,11 @@
 package rs.zzijad.tvoffz
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.PowerManager
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.CountDownTimer
@@ -47,6 +51,12 @@ class TvOffService : AccessibilityService() {
         }
     }
 
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            if (i.action == Intent.ACTION_SCREEN_OFF) onScreenOff()
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -54,10 +64,17 @@ class TvOffService : AccessibilityService() {
         allowed = buildAllowed()
         handler.removeCallbacks(ticker)
         handler.post(ticker)
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(screenReceiver, f, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(screenReceiver, f)
+        }
     }
 
     override fun onDestroy() {
         instance = null
+        runCatching { unregisterReceiver(screenReceiver) }
         handler.removeCallbacksAndMessages(null)
         timer?.cancel()
         removeCountdown()
@@ -233,15 +250,54 @@ class TvOffService : AccessibilityService() {
 
     private fun runAction(shutdown: Boolean) {
         performGlobalAction(GLOBAL_ACTION_HOME)
-        if (shutdown) {
-            handler.postDelayed({
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-                } else {
-                    performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
-                }
-            }, 1500L)
+        if (shutdown) handler.postDelayed({ sleepNow() }, 1500L)
+    }
+
+    /** Prebaci box u standby; zaštita od gašenja ga tada ne budi. */
+    fun sleepNow() {
+        Prefs.setAllowSleepUntil(this, System.currentTimeMillis() + 120_000L)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+        } else {
+            performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Zaštita od gašenja (dugme za napajanje)
+    // ------------------------------------------------------------------
+
+    /**
+     * Dugme za napajanje ne može da se presretne, pa se gašenje poništi:
+     * box se odmah ponovo probudi i prikaže ekran za PIN.
+     */
+    private fun onScreenOff() {
+        val cfg = Prefs.load(this)
+        if (!cfg.pinToSleep || !Prefs.hasPin(this)) return
+        val now = System.currentTimeMillis()
+        if (now < Prefs.allowSleepUntil(this)) return
+        // Noću, u periodu zaključavanja, gašenje je uvek dozvoljeno.
+        if (Schedule.lockEnd(cfg, now) != null) return
+
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        // Drži procesor budnim dok ne probudimo ekran.
+        pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvoffz:guard").acquire(5_000L)
+        handler.postDelayed({ wakeWithGuard() }, 800L)
+    }
+
+    private fun wakeWithGuard() {
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        @Suppress("DEPRECATION")
+        runCatching {
+            pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "tvoffz:wake",
+            ).acquire(3_000L)
+        }
+        startActivity(
+            Intent(this, SleepGuardActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
     }
 
     private fun removeCountdown() {
