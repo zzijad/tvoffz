@@ -5,12 +5,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.PowerManager
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
@@ -27,7 +27,9 @@ import java.util.Calendar
  * Srce aplikacije:
  *  - na svakih 5 s proverava raspored i u pravo vreme prikaže odbrojavanje,
  *  - po isteku vrati na Home ekran i (ako je izabrano) prebaci box u standby,
- *  - u periodu zaključavanja svaku pokrenutu aplikaciju odmah vrati na Home.
+ *  - u periodu zaključavanja svaku pokrenutu aplikaciju odmah vrati na Home,
+ *  - meri vreme po aplikaciji i zatvara je kad potroši dnevni limit,
+ *  - (opciono) poništava gašenje dugmetom za napajanje bez PIN-a.
  */
 class TvOffService : AccessibilityService() {
 
@@ -39,10 +41,16 @@ class TvOffService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var wm: WindowManager
+    private lateinit var pm: PowerManager
     private var countdownView: View? = null
-    private var lockView: View? = null
+    private var blockView: View? = null
     private var timer: CountDownTimer? = null
-    private var allowed: Set<String> = emptySet()
+    private var ignored: Set<String> = emptySet()
+    private var launchers: Set<String> = emptySet()
+
+    /** Aplikacija koja je trenutno na ekranu. */
+    private var fgPkg: String? = null
+    private var lastTick = 0L
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -61,7 +69,9 @@ class TvOffService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        allowed = buildAllowed()
+        pm = getSystemService(POWER_SERVICE) as PowerManager
+        buildPackageSets()
+        lastTick = System.currentTimeMillis()
         handler.removeCallbacks(ticker)
         handler.post(ticker)
         val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
@@ -78,70 +88,198 @@ class TvOffService : AccessibilityService() {
         handler.removeCallbacksAndMessages(null)
         timer?.cancel()
         removeCountdown()
-        removeLock()
+        removeBlock()
         super.onDestroy()
     }
 
     override fun onInterrupt() {}
 
-    /** Paketi koji se nikad ne blokiraju: launcher, sistem, tastature i sama aplikacija. */
-    private fun buildAllowed(): Set<String> {
-        val s = mutableSetOf(packageName, "android", "com.android.systemui")
+    /**
+     * launchers = Home ekran(i); ignored = sistem, tastature i sama aplikacija.
+     * Ni jedni ni drugi se nikad ne blokiraju.
+     */
+    private fun buildPackageSets() {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
         @Suppress("DEPRECATION")
-        val launchers = packageManager.queryIntentActivities(home, 0)
-        launchers.forEach { s += it.activityInfo.packageName }
+        launchers = packageManager.queryIntentActivities(home, 0)
+            .map { it.activityInfo.packageName }.toSet()
+        val s = mutableSetOf(packageName, "android", "com.android.systemui")
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.inputMethodList.forEach { s += it.packageName }
-        return s
+        ignored = s
     }
 
+    private fun appName(pkg: String): String = runCatching {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
+
     // ------------------------------------------------------------------
-    // Zaključavanje aplikacija
+    // Pokretanje aplikacija: zaključavanje i limiti
     // ------------------------------------------------------------------
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
-        if (pkg in allowed) return
+        if (pkg in ignored) return
+        countUsage()
+        fgPkg = pkg
+        if (pkg in launchers) return
+
         val now = System.currentTimeMillis()
-        if (now < Prefs.unlockedUntil(this)) return
-        val end = Schedule.lockEnd(Prefs.load(this), now) ?: return
+
+        // Noćno zaključavanje
+        if (now >= Prefs.unlockedUntil(this)) {
+            val end = Schedule.lockEnd(Prefs.load(this), now)
+            if (end != null) {
+                goHome()
+                val until = Schedule.fmt(Schedule.minsOf(end))
+                showBlock(
+                    title = getString(R.string.lock_title),
+                    descPin = getString(R.string.lock_desc, until),
+                    descNoPin = getString(R.string.lock_desc_nopin, until),
+                ) {
+                    Prefs.setUnlockedUntil(this, end)
+                    Toast.makeText(this, R.string.lock_unlocked, Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+        }
+
+        // Dnevni limit potrošen
+        val left = Limits.leftSec(this, pkg)
+        if (left != null && left <= 0 && countdownView == null) {
+            goHome()
+            blockLimit(pkg)
+        }
+    }
+
+    private fun goHome() {
         performGlobalAction(GLOBAL_ACTION_HOME)
-        showLock(end)
+        fgPkg = null
+    }
+
+    private fun blockLimit(pkg: String) {
+        val name = appName(pkg)
+        val mins = Limits.get(this, pkg)
+        showBlock(
+            title = getString(R.string.limit_block_title, name),
+            descPin = getString(R.string.limit_block_desc, mins),
+            descNoPin = getString(R.string.limit_block_desc_nopin, mins),
+        ) {
+            Limits.unlock(this, pkg)
+            Toast.makeText(this, getString(R.string.limit_unlocked, name), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Doda vreme provedeno u aplikaciji koja je na ekranu od poslednjeg merenja. */
+    private fun countUsage() {
+        val now = System.currentTimeMillis()
+        val sec = ((now - lastTick) / 1000L).toInt()
+        lastTick = now
+        val pkg = fgPkg ?: return
+        if (pkg in launchers || sec <= 0 || sec > 60) return
+        if (!pm.isInteractive) return
+        if (Limits.get(this, pkg) <= 0) return
+        Limits.addSec(this, pkg, sec)
     }
 
     // ------------------------------------------------------------------
-    // Raspored
+    // Raspored i limiti (na svakih 5 s)
     // ------------------------------------------------------------------
 
     private fun tick() {
+        countUsage()
         if (countdownView != null) return
+        if (checkSchedule()) return
+        checkLimit()
+    }
+
+    private fun checkLimit() {
+        val pkg = fgPkg ?: return
+        if (pkg in launchers || !pm.isInteractive) return
+        val left = Limits.leftSec(this, pkg) ?: return
+        val warn = Prefs.load(this).secs
+        if (left > warn) return
+        val name = appName(pkg)
+        val mins = Limits.get(this, pkg)
+        startCountdown(
+            left = maxOf(3, left),
+            total = warn,
+            title = getString(R.string.cd_title_limit, name),
+            sub = getString(R.string.cd_sub_limit, mins),
+            done = getString(R.string.cd_done_home),
+            shutdownIcon = false,
+            onFinish = {
+                goHome()
+                blockLimit(pkg)
+            },
+            onCancel = {
+                Limits.unlock(this, pkg)
+                Toast.makeText(this, getString(R.string.limit_unlocked, name), Toast.LENGTH_LONG).show()
+            },
+        )
+    }
+
+    /** Vraća true ako je pokrenulo zakazano odbrojavanje. */
+    private fun checkSchedule(): Boolean {
         val cfg = Prefs.load(this)
-        if (!cfg.enabled) return
+        if (!cfg.enabled) return false
         val now = System.currentTimeMillis()
         val cal = Calendar.getInstance().apply { timeInMillis = now }
-        if (!Schedule.isDayOn(cfg.days, Schedule.dayIndex(cal))) return
+        if (!Schedule.isDayOn(cfg.days, Schedule.dayIndex(cal))) return false
 
         val nowSec = cal.get(Calendar.HOUR_OF_DAY) * 3600 +
             cal.get(Calendar.MINUTE) * 60 + cal.get(Calendar.SECOND)
         val actionSec = cfg.actionMins * 60
         val startSec = maxOf(0, actionSec - cfg.secs)
-        if (nowSec < startSec || nowSec >= actionSec + 120) return
+        if (nowSec < startSec || nowSec >= actionSec + 120) return false
 
         val key = Schedule.dayKey(now) + "|" + cfg.actionMins
-        if (Prefs.lastFired(this) == key) return
+        if (Prefs.lastFired(this) == key) return false
         Prefs.setLastFired(this, key)
 
         // Odbrojavanje se završava tačno u zadato vreme.
         val left = maxOf(3, actionSec - nowSec)
-        startCountdown(left, maxOf(cfg.secs, left), cfg.shutdown, test = false, cfg = cfg)
+        scheduledCountdown(cfg, left, maxOf(cfg.secs, left), test = false)
+        return true
     }
 
     /** Dugme "Testiraj odmah". */
     fun startTest() {
         val cfg = Prefs.load(this)
-        startCountdown(cfg.secs, cfg.secs, cfg.shutdown, test = true, cfg = cfg)
+        scheduledCountdown(cfg, cfg.secs, cfg.secs, test = true)
+    }
+
+    private fun scheduledCountdown(cfg: Config, left: Int, total: Int, test: Boolean) {
+        val at = Schedule.fmt(cfg.actionMins)
+        startCountdown(
+            left = left,
+            total = total,
+            title = getString(if (cfg.shutdown) R.string.cd_title_shutdown else R.string.cd_title_home),
+            sub = when {
+                test -> getString(R.string.cd_sub_test)
+                cfg.shutdown -> getString(R.string.cd_sub_shutdown, at)
+                else -> getString(R.string.cd_sub_home, at)
+            },
+            done = getString(if (cfg.shutdown) R.string.cd_done_shutdown else R.string.cd_done_home),
+            shutdownIcon = cfg.shutdown,
+            onFinish = {
+                goHome()
+                if (cfg.shutdown) handler.postDelayed({ sleepNow() }, 1500L)
+            },
+            onCancel = {
+                if (!test) {
+                    // "Otkazano za danas": ni akcija ni zaključavanje do sledećeg puta.
+                    val actionAt = Schedule.at(System.currentTimeMillis(), 0, cfg.actionMins)
+                    Schedule.lockEnd(cfg, actionAt)?.let { Prefs.setUnlockedUntil(this, it) }
+                }
+                Toast.makeText(
+                    this,
+                    if (test) R.string.cd_cancelled_test else R.string.cd_cancelled,
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
     }
 
     // ------------------------------------------------------------------
@@ -158,7 +296,17 @@ class TvOffService : AccessibilityService() {
         PixelFormat.TRANSLUCENT,
     )
 
-    private fun startCountdown(left: Int, total: Int, shutdown: Boolean, test: Boolean, cfg: Config) {
+    @Suppress("UNUSED_PARAMETER")
+    private fun startCountdown(
+        left: Int,
+        total: Int,
+        title: String,
+        sub: String,
+        done: String,
+        shutdownIcon: Boolean,
+        onFinish: () -> Unit,
+        onCancel: () -> Unit,
+    ) {
         if (countdownView != null) return
         val ctx = themed()
         val content = LayoutInflater.from(ctx).inflate(R.layout.overlay_countdown, null)
@@ -176,25 +324,28 @@ class TvOffService : AccessibilityService() {
         val btnCancel = content.findViewById<Button>(R.id.btnCancel)
         val pinBox = content.findViewById<FrameLayout>(R.id.pinBox)
 
-        val title = getString(if (shutdown) R.string.cd_title_shutdown else R.string.cd_title_home)
         tvTitle.text = title
-        tvSub.text = when {
-            test -> getString(R.string.cd_sub_test)
-            shutdown -> getString(R.string.cd_sub_shutdown, Schedule.fmt(cfg.actionMins))
-            else -> getString(R.string.cd_sub_home, Schedule.fmt(cfg.actionMins))
-        }
+        tvSub.text = sub
+        val safeTotal = maxOf(total, left, 1)
 
         var pinMode = false
         fun update(sec: Int) {
             tvNumber.text = sec.toString()
-            ring.progress = sec.toFloat() / total
+            ring.progress = sec.toFloat() / safeTotal
             if (pinMode) tvTitle.text = getString(R.string.cd_title_in, title, sec)
         }
         update(left)
 
+        fun cancel() {
+            timer?.cancel()
+            timer = null
+            removeCountdown()
+            onCancel()
+        }
+
         btnCancel.setOnClickListener {
             if (!Prefs.hasPin(this)) {
-                cancelCountdown(test, cfg)
+                cancel()
                 return@setOnClickListener
             }
             // Sa PIN-om: otkazivanje traži PIN, odbrojavanje teče dalje.
@@ -206,7 +357,7 @@ class TvOffService : AccessibilityService() {
             val pad = PinPadView(ctx)
             pad.setTitle(getString(R.string.pin_to_cancel))
             pad.onComplete = { pin ->
-                if (Prefs.checkPin(this, pin)) cancelCountdown(test, cfg)
+                if (Prefs.checkPin(this, pin)) cancel()
                 else pad.showError(getString(R.string.pin_wrong))
             }
             pinBox.addView(pad)
@@ -225,33 +376,22 @@ class TvOffService : AccessibilityService() {
 
             override fun onFinish() {
                 update(0)
+                tvTitle.text = done
                 timer = null
                 removeCountdown()
-                runAction(shutdown)
+                onFinish()
             }
         }.start()
     }
 
-    private fun cancelCountdown(test: Boolean, cfg: Config) {
-        timer?.cancel()
-        timer = null
-        removeCountdown()
-        if (!test) {
-            // "Otkazano za danas": ni akcija ni zaključavanje do sledećeg puta.
-            val actionAt = Schedule.at(System.currentTimeMillis(), 0, cfg.actionMins)
-            Schedule.lockEnd(cfg, actionAt)?.let { Prefs.setUnlockedUntil(this, it) }
-        }
-        Toast.makeText(
-            this,
-            if (test) R.string.cd_cancelled_test else R.string.cd_cancelled,
-            Toast.LENGTH_LONG,
-        ).show()
+    private fun removeCountdown() {
+        countdownView?.let { v -> runCatching { wm.removeView(v) } }
+        countdownView = null
     }
 
-    private fun runAction(shutdown: Boolean) {
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        if (shutdown) handler.postDelayed({ sleepNow() }, 1500L)
-    }
+    // ------------------------------------------------------------------
+    // Gašenje i zaštita od gašenja (dugme za napajanje)
+    // ------------------------------------------------------------------
 
     /** Prebaci box u standby; zaštita od gašenja ga tada ne budi. */
     fun sleepNow() {
@@ -263,15 +403,12 @@ class TvOffService : AccessibilityService() {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Zaštita od gašenja (dugme za napajanje)
-    // ------------------------------------------------------------------
-
     /**
      * Dugme za napajanje ne može da se presretne, pa se gašenje poništi:
      * box se odmah ponovo probudi i prikaže ekran za PIN.
      */
     private fun onScreenOff() {
+        countUsage()
         val cfg = Prefs.load(this)
         if (!cfg.pinToSleep || !Prefs.hasPin(this)) return
         val now = System.currentTimeMillis()
@@ -279,14 +416,12 @@ class TvOffService : AccessibilityService() {
         // Noću, u periodu zaključavanja, gašenje je uvek dozvoljeno.
         if (Schedule.lockEnd(cfg, now) != null) return
 
-        val pm = getSystemService(POWER_SERVICE) as PowerManager
         // Drži procesor budnim dok ne probudimo ekran.
         pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvoffz:guard").acquire(5_000L)
         handler.postDelayed({ wakeWithGuard() }, 800L)
     }
 
     private fun wakeWithGuard() {
-        val pm = getSystemService(POWER_SERVICE) as PowerManager
         @Suppress("DEPRECATION")
         runCatching {
             pm.newWakeLock(
@@ -300,39 +435,33 @@ class TvOffService : AccessibilityService() {
         )
     }
 
-    private fun removeCountdown() {
-        countdownView?.let { v -> runCatching { wm.removeView(v) } }
-        countdownView = null
-    }
-
     // ------------------------------------------------------------------
-    // Ekran "Aplikacije su zaključane"
+    // Ekran "zaključano" (noćno zaključavanje ili istekao limit)
     // ------------------------------------------------------------------
 
-    private fun showLock(end: Long) {
-        if (lockView != null) return
+    private fun showBlock(title: String, descPin: String, descNoPin: String, onUnlock: () -> Unit) {
+        if (blockView != null) return
         val ctx = themed()
         val content = LayoutInflater.from(ctx).inflate(R.layout.overlay_locked, null)
         val root = KeyFrame(ctx).apply {
             addView(content)
-            onBack = { removeLock() }
+            onBack = { removeBlock() }
         }
 
-        val until = Schedule.fmt(Schedule.minsOf(end))
+        content.findViewById<TextView>(R.id.tvLockTitle).text = title
         val tvDesc = content.findViewById<TextView>(R.id.tvLockDesc)
         val btnHome = content.findViewById<Button>(R.id.btnBackHome)
         val pinBox = content.findViewById<FrameLayout>(R.id.lockPinBox)
-        btnHome.setOnClickListener { removeLock() }
+        btnHome.setOnClickListener { removeBlock() }
 
         val pad: PinPadView? = if (Prefs.hasPin(this)) {
-            tvDesc.text = getString(R.string.lock_desc, until)
+            tvDesc.text = descPin
             PinPadView(ctx).also { p ->
                 p.setTitle(getString(R.string.pin_enter_caps))
                 p.onComplete = { pin ->
                     if (Prefs.checkPin(this, pin)) {
-                        Prefs.setUnlockedUntil(this, end)
-                        removeLock()
-                        Toast.makeText(this, R.string.lock_unlocked, Toast.LENGTH_LONG).show()
+                        removeBlock()
+                        onUnlock()
                     } else {
                         p.showError(getString(R.string.pin_wrong))
                     }
@@ -340,20 +469,20 @@ class TvOffService : AccessibilityService() {
                 pinBox.addView(p)
             }
         } else {
-            tvDesc.text = getString(R.string.lock_desc_nopin, until)
+            tvDesc.text = descNoPin
             pinBox.visibility = View.GONE
             null
         }
 
-        lockView = root
+        blockView = root
         wm.addView(root, overlayParams())
         root.post {
             if (pad != null) pad.focusFirst() else btnHome.requestFocus()
         }
     }
 
-    private fun removeLock() {
-        lockView?.let { v -> runCatching { wm.removeView(v) } }
-        lockView = null
+    private fun removeBlock() {
+        blockView?.let { v -> runCatching { wm.removeView(v) } }
+        blockView = null
     }
 }

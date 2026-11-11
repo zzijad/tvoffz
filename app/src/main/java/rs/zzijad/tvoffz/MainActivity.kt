@@ -16,6 +16,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_VERIFY = 1
         private const val REQ_SETUP = 2
+        private const val REQ_LIMITS = 3
         private val DAY_NAMES = arrayOf(
             "ponedeljak", "utorak", "sreda", "četvrtak", "petak", "subota", "nedelja",
         )
@@ -42,6 +43,7 @@ class MainActivity : Activity() {
     private lateinit var tvSecs: TextView
     private lateinit var btnPin: Button
     private lateinit var btnPinSleep: Button
+    private lateinit var btnLimits: Button
     private lateinit var btnOpenSettings: Button
     private lateinit var dayButtons: List<Button>
 
@@ -66,6 +68,11 @@ class MainActivity : Activity() {
         tvSecs = findViewById(R.id.tvSecs)
         btnPin = findViewById(R.id.btnPin)
         btnPinSleep = findViewById(R.id.btnPinSleep)
+        btnLimits = findViewById(R.id.btnLimits)
+        btnLimits.setOnClickListener {
+            childOpen = true
+            startActivityForResult(Intent(this, LimitsActivity::class.java), REQ_LIMITS)
+        }
         btnOpenSettings = findViewById(R.id.btnOpenSettings)
         dayButtons = listOf(
             R.id.day0, R.id.day1, R.id.day2, R.id.day3, R.id.day4, R.id.day5, R.id.day6,
@@ -210,6 +217,9 @@ class MainActivity : Activity() {
         val guardOn = cfg.pinToSleep && hasPin
         btnPinSleep.isActivated = guardOn
         btnPinSleep.setText(if (guardOn) R.string.on else R.string.off)
+        val n = Limits.count(this)
+        btnLimits.isActivated = n > 0
+        btnLimits.text = if (n == 0) getString(R.string.limits_btn_none) else getString(R.string.limits_btn_count, n)
     }
 
     private fun dayLabel(now: Long, t: Long): String =
