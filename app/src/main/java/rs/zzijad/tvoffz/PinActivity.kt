@@ -60,6 +60,7 @@ class PinActivity : Activity() {
                     }
                     p == f -> {
                         Prefs.setPin(this, p)
+                        Session.verified = true
                         Toast.makeText(this, R.string.pin_saved, Toast.LENGTH_LONG).show()
                         setResult(RESULT_OK)
                         finish()
@@ -76,15 +77,20 @@ class PinActivity : Activity() {
             tvStep.visibility = View.GONE
             pad.setTitle(getString(R.string.pin_enter_caps))
             pad.onComplete = { p ->
-                if (Prefs.checkPin(this, p)) {
+                pad.verify(p) {
                     setResult(RESULT_OK)
                     finish()
-                } else {
-                    pad.showError(getString(R.string.pin_wrong))
                 }
             }
         }
 
         pad.post { pad.focusFirst() }
+    }
+
+    /** Home na daljinskom: zatvori se i traži PIN opet sledeći put. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        Session.verified = false
+        finish()
     }
 }

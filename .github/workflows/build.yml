@@ -44,6 +44,13 @@ jobs:
             echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           fi
 
+      - name: Testovi i lint
+        continue-on-error: true
+        run: gradle testDebugUnitTest lintDebug --no-daemon --continue
+
+      - name: Rezultati testova
+        run: python3 .github/scripts/report.py
+
       - name: Build
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

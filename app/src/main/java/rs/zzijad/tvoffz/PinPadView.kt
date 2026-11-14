@@ -163,4 +163,15 @@ class PinPadView(context: Context) : LinearLayout(context) {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** Proveri uneti PIN (sa blokadom posle više grešaka) i prikaži poruku ako nije tačan. */
+    fun verify(pin: String, onOk: () -> Unit) {
+        when (Prefs.tryPin(context, pin)) {
+            PinResult.OK -> onOk()
+            PinResult.WRONG -> showError(context.getString(R.string.pin_wrong))
+            PinResult.LOCKED -> showError(
+                context.getString(R.string.pin_locked, Prefs.pinLockLeftSec(context)),
+            )
+        }
+    }
 }

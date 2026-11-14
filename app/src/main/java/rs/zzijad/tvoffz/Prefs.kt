@@ -14,7 +14,23 @@ data class Config(
     val days: Int = 0b1111111,
     /** Gašenje dugmetom za napajanje van rasporeda traži PIN. */
     val pinToSleep: Boolean = false,
+    /** Posle paljenja boxa ponovo otvori poslednju aplikaciju. */
+    val resumeLast: Boolean = true,
 )
+
+/** Zaštita od pogađanja PIN-a: posle 5 pogrešnih pokušaja unos se blokira na 2 min. */
+object PinPolicy {
+    const val MAX_FAILS = 5
+    const val LOCK_MS = 2 * 60_000L
+
+    /** Novi broj grešaka i vreme do kog je unos blokiran (0 = nije) posle pogrešnog PIN-a. */
+    fun afterWrong(fails: Int, now: Long): Pair<Int, Long> {
+        val f = fails + 1
+        return if (f >= MAX_FAILS) 0 to now + LOCK_MS else f to 0L
+    }
+}
+
+enum class PinResult { OK, WRONG, LOCKED }
 
 object Prefs {
     private const val NAME = "tvoffz"
@@ -32,6 +48,7 @@ object Prefs {
             secs = p.getInt("secs", d.secs),
             days = p.getInt("days", d.days),
             pinToSleep = p.getBoolean("pinToSleep", d.pinToSleep),
+            resumeLast = p.getBoolean("resumeLast", d.resumeLast),
         )
     }
 
@@ -44,6 +61,7 @@ object Prefs {
             .putInt("secs", cfg.secs)
             .putInt("days", cfg.days)
             .putBoolean("pinToSleep", cfg.pinToSleep)
+            .putBoolean("resumeLast", cfg.resumeLast)
             .apply()
     }
 
@@ -51,10 +69,29 @@ object Prefs {
     fun hasPin(c: Context) = sp(c).getString("pin", null) != null
 
     fun setPin(c: Context, pin: String) {
-        sp(c).edit().putString("pin", hash(pin)).apply()
+        sp(c).edit().putString("pin", hash(pin)).putInt("pinFails", 0).putLong("pinLockUntil", 0L).apply()
     }
 
-    fun checkPin(c: Context, pin: String) = sp(c).getString("pin", null) == hash(pin)
+    private fun checkPin(c: Context, pin: String) = sp(c).getString("pin", null) == hash(pin)
+
+    /** Proverava PIN uz blokadu posle više pogrešnih pokušaja. */
+    fun tryPin(c: Context, pin: String): PinResult {
+        val p = sp(c)
+        val now = System.currentTimeMillis()
+        if (now < p.getLong("pinLockUntil", 0L)) return PinResult.LOCKED
+        if (checkPin(c, pin)) {
+            p.edit().putInt("pinFails", 0).apply()
+            return PinResult.OK
+        }
+        val (fails, until) = PinPolicy.afterWrong(p.getInt("pinFails", 0), now)
+        p.edit().putInt("pinFails", fails).putLong("pinLockUntil", until).commit()
+        return if (until > 0L) PinResult.LOCKED else PinResult.WRONG
+    }
+
+    fun pinLockLeftSec(c: Context): Int {
+        val left = sp(c).getLong("pinLockUntil", 0L) - System.currentTimeMillis()
+        return if (left <= 0) 0 else ((left + 999L) / 1000L).toInt()
+    }
 
     private fun hash(pin: String): String =
         MessageDigest.getInstance("SHA-256")
@@ -82,4 +119,17 @@ object Prefs {
     fun setAllowSleepUntil(c: Context, millis: Long) {
         sp(c).edit().putLong("allowSleepUntil", millis).commit()
     }
+
+    /** Poslednja aplikacija koja je bila otvorena (za nastavak posle paljenja). */
+    fun lastApp(c: Context): String? = sp(c).getString("lastApp", null)
+
+    fun setLastApp(c: Context, pkg: String) {
+        sp(c).edit().putString("lastApp", pkg).apply()
+    }
+}
+
+/** Da li je PIN u podešavanjima već unet u ovoj sesiji (dok se ne izađe iz aplikacije). */
+object Session {
+    @Volatile
+    var verified = false
 }

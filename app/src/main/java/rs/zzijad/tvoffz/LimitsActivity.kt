@@ -44,6 +44,13 @@ class LimitsActivity : Activity() {
             .sortedWith(compareBy({ Limits.get(this, it.pkg) == 0 }, { it.label.lowercase() }))
     }
 
+    /** Home na daljinskom: zatvori se i traži PIN opet sledeći put. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        Session.verified = false
+        finish()
+    }
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /** Vraća levo dugme reda (za početni fokus). */

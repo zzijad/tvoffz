@@ -60,6 +60,18 @@ object Schedule {
         return null
     }
 
+    /** Koliko posle zadatog vremena se još pokreće propušteno odbrojavanje. */
+    const val GRACE_MS = 120_000L
+
+    /**
+     * Vreme akcije za koje sada treba prikazati odbrojavanje, ili null.
+     * Radi i preko ponoći (npr. akcija u 00:00, upozorenje kreće u 23:59).
+     */
+    fun dueAction(cfg: Config, now: Long): Long? {
+        val t = nextAction(cfg, now - GRACE_MS) ?: return null
+        return if (t - now <= cfg.secs * 1000L) t else null
+    }
+
     /** Za koliko dana od danas je [t] (0 = danas, 1 = sutra …). */
     fun daysFromToday(now: Long, t: Long): Int {
         for (d in 0..7) if (t < at(now, d + 1, 0)) return d

@@ -23,7 +23,6 @@ class MainActivity : Activity() {
     }
 
     private var cfg = Config()
-    private var verified = false
     private var childOpen = false
 
     private lateinit var mainContent: View
@@ -44,6 +43,7 @@ class MainActivity : Activity() {
     private lateinit var btnPin: Button
     private lateinit var btnPinSleep: Button
     private lateinit var btnLimits: Button
+    private lateinit var btnResume: Button
     private lateinit var btnOpenSettings: Button
     private lateinit var dayButtons: List<Button>
 
@@ -69,6 +69,8 @@ class MainActivity : Activity() {
         btnPin = findViewById(R.id.btnPin)
         btnPinSleep = findViewById(R.id.btnPinSleep)
         btnLimits = findViewById(R.id.btnLimits)
+        btnResume = findViewById(R.id.btnResume)
+        btnResume.setOnClickListener { update { it.copy(resumeLast = !it.resumeLast) } }
         btnLimits.setOnClickListener {
             childOpen = true
             startActivityForResult(Intent(this, LimitsActivity::class.java), REQ_LIMITS)
@@ -138,7 +140,7 @@ class MainActivity : Activity() {
         setupContent.visibility = if (serviceOn) View.GONE else View.VISIBLE
         render()
 
-        if (serviceOn && Prefs.hasPin(this) && !verified) {
+        if (serviceOn && Prefs.hasPin(this) && !Session.verified) {
             childOpen = true
             startActivityForResult(
                 Intent(this, PinActivity::class.java)
@@ -156,14 +158,14 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
-        if (!childOpen) verified = false
+        if (!childOpen) Session.verified = false
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         childOpen = false
         if (requestCode == REQ_VERIFY) {
-            if (resultCode == RESULT_OK) verified = true else finish()
+            if (resultCode == RESULT_OK) Session.verified = true else finish()
         }
     }
 
@@ -217,6 +219,8 @@ class MainActivity : Activity() {
         val guardOn = cfg.pinToSleep && hasPin
         btnPinSleep.isActivated = guardOn
         btnPinSleep.setText(if (guardOn) R.string.on else R.string.off)
+        btnResume.isActivated = cfg.resumeLast
+        btnResume.setText(if (cfg.resumeLast) R.string.on else R.string.off)
         val n = Limits.count(this)
         btnLimits.isActivated = n > 0
         btnLimits.text = if (n == 0) getString(R.string.limits_btn_none) else getString(R.string.limits_btn_count, n)

@@ -58,5 +58,10 @@ android {
     lint {
         checkReleaseBuilds = false
         abortOnError = false
+        xmlReport = true
     }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }

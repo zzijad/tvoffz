@@ -21,7 +21,6 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
-import java.util.Calendar
 
 /**
  * Srce aplikacije:
@@ -52,6 +51,14 @@ class TvOffService : AccessibilityService() {
     private var fgPkg: String? = null
     private var lastTick = 0L
 
+    /** Radi screensaver (box neaktivan) – gašenje posle toga je automatsko, ne bebac. */
+    private var dreaming = false
+
+    /** Box je probuđen zbog zaštite od gašenja i čeka PIN ekran. */
+    private var guardPending = false
+
+    private val resumeRunnable = Runnable { resumeLastApp() }
+
     private val ticker = object : Runnable {
         override fun run() {
             tick()
@@ -61,7 +68,12 @@ class TvOffService : AccessibilityService() {
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
-            if (i.action == Intent.ACTION_SCREEN_OFF) onScreenOff()
+            when (i.action) {
+                Intent.ACTION_SCREEN_OFF -> onScreenOff()
+                Intent.ACTION_SCREEN_ON -> onScreenOn()
+                Intent.ACTION_DREAMING_STARTED -> dreaming = true
+                Intent.ACTION_DREAMING_STOPPED -> dreaming = false
+            }
         }
     }
 
@@ -74,7 +86,12 @@ class TvOffService : AccessibilityService() {
         lastTick = System.currentTimeMillis()
         handler.removeCallbacks(ticker)
         handler.post(ticker)
-        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        val f = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(screenReceiver, f, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -100,8 +117,11 @@ class TvOffService : AccessibilityService() {
      */
     private fun buildPackageSets() {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        // Podešavanja imaju rezervni "FallbackHome" (negativan prioritet). Nije pravi launcher,
+        // a da se računa kao launcher, Podešavanja se noću ne bi blokirala.
         @Suppress("DEPRECATION")
         launchers = packageManager.queryIntentActivities(home, 0)
+            .filter { it.priority >= 0 && !it.activityInfo.name.contains("FallbackHome") }
             .map { it.activityInfo.packageName }.toSet()
         val s = mutableSetOf(packageName, "android", "com.android.systemui")
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
@@ -121,6 +141,8 @@ class TvOffService : AccessibilityService() {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
         if (pkg in ignored) return
+        // Toast poruka aplikacije iz pozadine nije otvaranje te aplikacije.
+        if (event.className?.toString()?.startsWith("android.widget.Toast") == true) return
         countUsage()
         fgPkg = pkg
         if (pkg in launchers) return
@@ -150,7 +172,18 @@ class TvOffService : AccessibilityService() {
         if (left != null && left <= 0 && countdownView == null) {
             goHome()
             blockLimit(pkg)
+            return
         }
+
+        Prefs.setLastApp(this, pkg)
+    }
+
+    /** Da li je aplikacija sada blokirana (noćno zaključavanje ili potrošen limit). */
+    private fun isBlocked(pkg: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now >= Prefs.unlockedUntil(this) && Schedule.lockEnd(Prefs.load(this), now) != null) return true
+        val left = Limits.leftSec(this, pkg)
+        return left != null && left <= 0
     }
 
     private fun goHome() {
@@ -223,23 +256,15 @@ class TvOffService : AccessibilityService() {
     /** Vraća true ako je pokrenulo zakazano odbrojavanje. */
     private fun checkSchedule(): Boolean {
         val cfg = Prefs.load(this)
-        if (!cfg.enabled) return false
         val now = System.currentTimeMillis()
-        val cal = Calendar.getInstance().apply { timeInMillis = now }
-        if (!Schedule.isDayOn(cfg.days, Schedule.dayIndex(cal))) return false
+        val t = Schedule.dueAction(cfg, now) ?: return false
 
-        val nowSec = cal.get(Calendar.HOUR_OF_DAY) * 3600 +
-            cal.get(Calendar.MINUTE) * 60 + cal.get(Calendar.SECOND)
-        val actionSec = cfg.actionMins * 60
-        val startSec = maxOf(0, actionSec - cfg.secs)
-        if (nowSec < startSec || nowSec >= actionSec + 120) return false
-
-        val key = Schedule.dayKey(now) + "|" + cfg.actionMins
+        val key = Schedule.dayKey(t) + "|" + cfg.actionMins
         if (Prefs.lastFired(this) == key) return false
         Prefs.setLastFired(this, key)
 
         // Odbrojavanje se završava tačno u zadato vreme.
-        val left = maxOf(3, actionSec - nowSec)
+        val left = maxOf(3, ((t - now + 999L) / 1000L).toInt())
         scheduledCountdown(cfg, left, maxOf(cfg.secs, left), test = false)
         return true
     }
@@ -356,10 +381,7 @@ class TvOffService : AccessibilityService() {
             tvSub.visibility = View.GONE
             val pad = PinPadView(ctx)
             pad.setTitle(getString(R.string.pin_to_cancel))
-            pad.onComplete = { pin ->
-                if (Prefs.checkPin(this, pin)) cancel()
-                else pad.showError(getString(R.string.pin_wrong))
-            }
+            pad.onComplete = { pin -> pad.verify(pin) { cancel() } }
             pinBox.addView(pad)
             pinBox.visibility = View.VISIBLE
             pad.post { pad.focusFirst() }
@@ -395,6 +417,7 @@ class TvOffService : AccessibilityService() {
 
     /** Prebaci box u standby; zaštita od gašenja ga tada ne budi. */
     fun sleepNow() {
+        guardPending = false
         Prefs.setAllowSleepUntil(this, System.currentTimeMillis() + 120_000L)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
@@ -409,15 +432,55 @@ class TvOffService : AccessibilityService() {
      */
     private fun onScreenOff() {
         countUsage()
+        handler.removeCallbacks(resumeRunnable)
+        val wasDreaming = dreaming
+        dreaming = false
         val cfg = Prefs.load(this)
         if (!cfg.pinToSleep || !Prefs.hasPin(this)) return
         val now = System.currentTimeMillis()
         // Bez PIN-a se gasi samo zakazano gašenje (ili posle tačnog PIN-a).
         if (now < Prefs.allowSleepUntil(this)) return
+        // Box je sam otišao na spavanje posle screensavera (niko ga nije koristio).
+        if (wasDreaming) return
 
+        guardPending = true
         // Drži procesor budnim dok ne probudimo ekran.
         pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvoffz:guard").acquire(5_000L)
         handler.postDelayed({ wakeWithGuard() }, 800L)
+    }
+
+    private fun onScreenOn() {
+        // Kad zaštita budi box, poslednja aplikacija se otvara tek kad se PIN ekran zatvori.
+        if (guardPending) return
+        handler.removeCallbacks(resumeRunnable)
+        handler.postDelayed(resumeRunnable, 2_500L)
+    }
+
+    /** PIN ekran zaštite je zatvoren bez gašenja (Nazad ili isteklo vreme). */
+    fun guardDismissed() {
+        guardPending = false
+        handler.removeCallbacks(resumeRunnable)
+        handler.postDelayed(resumeRunnable, 800L)
+    }
+
+    // ------------------------------------------------------------------
+    // Nastavak poslednje aplikacije posle paljenja
+    // ------------------------------------------------------------------
+
+    private fun resumeLastApp() {
+        if (!pm.isInteractive) return
+        if (!Prefs.load(this).resumeLast) return
+        // Box se probudio pravo u aplikaciju – ništa ne treba.
+        val fg = fgPkg
+        if (fg != null && fg !in launchers) return
+        if (countdownView != null || blockView != null) return
+        val pkg = Prefs.lastApp(this) ?: return
+        if (isBlocked(pkg)) return
+        val intent = packageManager.getLeanbackLaunchIntentForPackage(pkg)
+            ?: packageManager.getLaunchIntentForPackage(pkg)
+            ?: return
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { startActivity(intent) }
     }
 
     private fun wakeWithGuard() {
@@ -458,11 +521,9 @@ class TvOffService : AccessibilityService() {
             PinPadView(ctx).also { p ->
                 p.setTitle(getString(R.string.pin_enter_caps))
                 p.onComplete = { pin ->
-                    if (Prefs.checkPin(this, pin)) {
+                    p.verify(pin) {
                         removeBlock()
                         onUnlock()
-                    } else {
-                        p.showError(getString(R.string.pin_wrong))
                     }
                 }
                 pinBox.addView(p)

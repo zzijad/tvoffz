@@ -58,7 +58,12 @@ object Limits {
     }
 
     fun next(mins: Int, dir: Int): Int {
-        val i = STEPS.indexOfFirst { it >= mins }.let { if (it < 0) STEPS.size - 1 else it }
+        val i = STEPS.indexOfFirst { it >= mins }
+        if (i < 0) return STEPS.last()
+        if (STEPS[i] != mins) {
+            // Vrednost između dva koraka: ide na prvi korak u tom smeru.
+            return if (dir > 0) STEPS[i] else STEPS[maxOf(0, i - 1)]
+        }
         return STEPS[(i + dir).coerceIn(0, STEPS.size - 1)]
     }
 }

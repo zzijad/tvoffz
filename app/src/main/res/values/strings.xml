@@ -93,6 +93,8 @@
     <string name="limit_mins">%1$d min</string>
     <string name="limit_used">Danas: %1$d min</string>
     <string name="limit_used_unlocked">Danas: %1$d min · otključano</string>
+    <string name="pin_locked">Previše pogrešnih pokušaja. Sačekaj %1$d s.</string>
+    <string name="row_resume">Nastavi poslednju aplikaciju</string>
     <string name="row_pin_sleep">PIN za gašenje</string>
     <string name="need_pin_first">Prvo postavi PIN</string>
     <string name="guard_title">Gašenje je zaključano</string>

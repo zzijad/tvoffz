@@ -18,6 +18,7 @@ class SleepGuardActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val autoClose = Runnable { finish() }
+    private var pinOk = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,12 +50,11 @@ class SleepGuardActivity : Activity() {
         )
         pad.setTitle(getString(R.string.pin_enter_caps))
         pad.onComplete = { p ->
-            if (Prefs.checkPin(this, p)) {
+            restartAutoClose()
+            pad.verify(p) {
+                pinOk = true
                 finish()
                 handler.postDelayed({ TvOffService.instance?.sleepNow() }, 400L)
-            } else {
-                pad.showError(getString(R.string.pin_wrong))
-                restartAutoClose()
             }
         }
         pad.post { pad.focusFirst() }
@@ -73,6 +73,8 @@ class SleepGuardActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(autoClose)
+        // Zatvoreno bez gašenja: vrati poslednju aplikaciju.
+        if (!pinOk) TvOffService.instance?.guardDismissed()
         super.onDestroy()
     }
 }
