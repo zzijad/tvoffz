@@ -173,7 +173,7 @@ class TvOffService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (pkg in launchers) {
             // Box se upravo upalio i pojavio se Home ekran: vrati poslednju aplikaciju.
-            if (now < resumeWindowUntil && resumeTries < 3) {
+            if (now < resumeWindowUntil && resumeTries < 6) {
                 handler.removeCallbacks(resumeRunnable)
                 handler.postDelayed(resumeRunnable, 800L)
             }
@@ -557,11 +557,11 @@ class TvOffService : AccessibilityService() {
     }
 
     /**
-     * Narednih 20 s: kad god se pojavi Home ekran, vrati poslednju aplikaciju
+     * Narednih 40 s: kad god se pojavi Home ekran, vrati poslednju aplikaciju
      * (neki boxovi pokažu Home tek nekoliko sekundi posle paljenja).
      */
     private fun startResumeWindow(firstDelay: Long) {
-        resumeWindowUntil = System.currentTimeMillis() + 20_000L
+        resumeWindowUntil = System.currentTimeMillis() + 40_000L
         resumeTries = 0
         handler.removeCallbacks(resumeRunnable)
         handler.postDelayed(resumeRunnable, firstDelay)
