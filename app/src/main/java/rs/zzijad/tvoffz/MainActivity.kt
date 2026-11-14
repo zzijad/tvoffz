@@ -139,12 +139,15 @@ class MainActivity : Activity() {
 
         btnPin.setOnClickListener { openPinSetup() }
 
-        btnPinSleep.setOnClickListener {
-            if (!cfg.pinToSleep && !Prefs.hasPin(this)) {
-                Toast.makeText(this, R.string.need_pin_first, Toast.LENGTH_LONG).show()
-                openPinSetup()
+        btnPinSleep.setOnClickListener { update { it.copy(pinToSleep = !it.pinToSleep) } }
+
+        // Pravo gašenje boxa (dugme za napajanje je zaštićeno, pa se gasi odavde).
+        findViewById<Button>(R.id.btnShutdownNow).setOnClickListener {
+            val s = TvOffService.instance
+            if (s == null) {
+                Toast.makeText(this, R.string.service_off, Toast.LENGTH_LONG).show()
             } else {
-                update { it.copy(pinToSleep = !it.pinToSleep) }
+                s.sleepNow()
             }
         }
 
@@ -236,9 +239,8 @@ class MainActivity : Activity() {
         val hasPin = Prefs.hasPin(this)
         tvPinHint.visibility = if (!noLock && !hasPin) View.VISIBLE else View.GONE
         btnPin.setText(if (hasPin) R.string.pin_change else R.string.pin_set)
-        val guardOn = cfg.pinToSleep && hasPin
-        btnPinSleep.isActivated = guardOn
-        btnPinSleep.setText(if (guardOn) R.string.on else R.string.off)
+        btnPinSleep.isActivated = cfg.pinToSleep
+        btnPinSleep.setText(if (cfg.pinToSleep) R.string.on else R.string.off)
         btnResume.isActivated = cfg.resumeLast
         btnResume.setText(if (cfg.resumeLast) R.string.on else R.string.off)
         val n = Limits.count(this)

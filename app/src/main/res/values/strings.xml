@@ -97,12 +97,8 @@
     <string name="row_resume">Nastavi poslednju aplikaciju</string>
     <string name="log_title">Dnevnik događaja</string>
     <string name="log_header">Zapamćena poslednja aplikacija: %1$s\nNajnoviji događaji su na vrhu.</string>
-    <string name="row_pin_sleep">PIN za gašenje</string>
-    <string name="need_pin_first">Prvo postavi PIN</string>
-    <string name="guard_title">Gašenje je zaključano</string>
-    <string name="guard_desc">Unesi PIN da ugasiš box.</string>
-    <string name="guard_back">Nazad = nastavi gledanje</string>
-    <string name="guard_continue">Nastavi gledanje</string>
+    <string name="row_pin_sleep">Zaštita od gašenja</string>
+    <string name="btn_shutdown_now">Ugasi box</string>
     <string name="pin_clear">Obriši sve</string>
     <string name="pin_back">Obriši poslednju cifru</string>
 </resources>

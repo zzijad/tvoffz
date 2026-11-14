@@ -28,7 +28,7 @@ import android.widget.Toast
  *  - po isteku vrati na Home ekran i (ako je izabrano) prebaci box u standby,
  *  - u periodu zaključavanja svaku pokrenutu aplikaciju odmah vrati na Home,
  *  - meri vreme po aplikaciji i zatvara je kad potroši dnevni limit,
- *  - (opciono) poništava gašenje dugmetom za napajanje bez PIN-a.
+ *  - (opciono) poništava gašenje dugmetom za napajanje i vraća poslednju aplikaciju.
  */
 class TvOffService : AccessibilityService() {
 
@@ -111,7 +111,6 @@ class TvOffService : AccessibilityService() {
         timer?.cancel()
         removeCountdown()
         removeBlock()
-        removeGuard()
         super.onDestroy()
     }
 
@@ -481,96 +480,28 @@ class TvOffService : AccessibilityService() {
         val wasDreaming = dreaming
         dreaming = false
         val cfg = Prefs.load(this)
-        if (!cfg.pinToSleep || !Prefs.hasPin(this)) return
+        if (!cfg.pinToSleep) return
         val now = System.currentTimeMillis()
-        // Bez PIN-a se gasi samo zakazano gašenje (ili posle tačnog PIN-a).
+        // Box se zaista gasi samo zakazano ili dugmetom "Ugasi box" u TVOffZ-u.
         if (now < Prefs.allowSleepUntil(this)) return
         // Box je sam otišao na spavanje posle screensavera (niko ga nije koristio).
         if (wasDreaming) return
 
         guardPending = true
-        EventLog.add("Gašenje bez PIN-a – budim box")
+        EventLog.add("Gašenje dugmetom – budim box")
         // Drži procesor budnim dok ne probudimo ekran.
         pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvoffz:guard").acquire(5_000L)
         handler.postDelayed({ wakeWithGuard() }, 800L)
     }
 
     private fun onScreenOn() {
-        EventLog.add("Ekran upaljen" + if (guardPending) " (PIN ekran zaštite)" else "")
-        // Kad zaštita budi box, poslednja aplikacija se otvara tek kad se PIN ekran zatvori.
-        if (guardPending) {
-            showGuard()
-            return
-        }
+        EventLog.add("Ekran upaljen" + if (guardPending) " (gašenje poništeno)" else "")
+        guardPending = false
         // Čeka se da box sam pokaže Home ekran (prvi Home posle paljenja).
         // Ako se upali pravo u aplikaciju ili je i pre gašenja bio na Home-u, ništa se ne radi.
         resumeWindowUntil = System.currentTimeMillis() + 8_000L
         resumeTries = 0
         handler.removeCallbacks(resumeRunnable)
-    }
-
-    // ---- PIN ekran zaštite (prozor preko svega, launcher ga ne može prekriti) ----
-
-    private var guardView: View? = null
-    private val guardTimeout = Runnable { dismissGuard() }
-
-    private fun restartGuardTimeout() {
-        handler.removeCallbacks(guardTimeout)
-        handler.postDelayed(guardTimeout, 60_000L)
-    }
-
-    private fun showGuard() {
-        if (guardView != null) {
-            restartGuardTimeout()
-            return
-        }
-        val ctx = themed()
-        val content = LayoutInflater.from(ctx).inflate(R.layout.overlay_locked, null)
-        val root = KeyFrame(ctx).apply {
-            addView(content)
-            onBack = { dismissGuard() }
-            onAnyKey = { restartGuardTimeout() }
-        }
-        content.findViewById<TextView>(R.id.tvLockTitle).setText(R.string.guard_title)
-        content.findViewById<TextView>(R.id.tvLockDesc).setText(R.string.guard_desc)
-        val btn = content.findViewById<Button>(R.id.btnBackHome)
-        btn.setText(R.string.guard_continue)
-        btn.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_play, 0, 0, 0)
-        btn.setOnClickListener { dismissGuard() }
-        val pad = PinPadView(ctx).apply {
-            setTitle(getString(R.string.pin_enter_caps))
-            onComplete = { pin ->
-                verify(pin) {
-                    EventLog.add("Tačan PIN – gasim box")
-                    removeGuard()
-                    handler.postDelayed({ sleepNow() }, 400L)
-                }
-            }
-        }
-        content.findViewById<FrameLayout>(R.id.lockPinBox).addView(pad)
-        guardView = root
-        wm.addView(root, overlayParams())
-        root.post { pad.focusFirst() }
-        restartGuardTimeout()
-        EventLog.add("PIN ekran zaštite prikazan")
-    }
-
-    private fun removeGuard() {
-        handler.removeCallbacks(guardTimeout)
-        guardView?.let { v -> runCatching { wm.removeView(v) } }
-        guardView = null
-    }
-
-    /** PIN ekran zaštite je zatvoren bez gašenja (Nazad, dugme ili isteklo vreme). */
-    private fun dismissGuard() {
-        removeGuard()
-        guardPending = false
-        EventLog.add("PIN ekran zatvoren bez gašenja")
-        // Vrati ono što se gledalo pre bebčevog gašenja (jednom).
-        resumeTries = 0
-        resumeWindowUntil = System.currentTimeMillis() + 3_000L
-        handler.removeCallbacks(resumeRunnable)
-        handler.postDelayed(resumeRunnable, 800L)
     }
 
     // ------------------------------------------------------------------
@@ -589,8 +520,8 @@ class TvOffService : AccessibilityService() {
         if (fg != null && fg !in launchers && isLaunchable(fg)) {
             return skip("već je otvorena aplikacija $fg")
         }
-        if (countdownView != null || blockView != null || guardView != null) {
-            return skip("prikazano je odbrojavanje/blokada/PIN")
+        if (countdownView != null || blockView != null) {
+            return skip("prikazano je odbrojavanje/blokada")
         }
         if (isBlocked(pkg)) return skip("$pkg je zaključana (noćno zaključavanje ili limit)")
         val intent = launchIntent(pkg) ?: return skip("$pkg nema ikonicu za pokretanje")

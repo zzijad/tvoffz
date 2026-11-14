@@ -390,6 +390,9 @@
 
                 <Button
                     android:id="@+id/btnTest"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="16sp"
                     style="@style/Btn.Outline"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
@@ -399,6 +402,9 @@
 
                 <Button
                     android:id="@+id/btnPin"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="16sp"
                     style="@style/Btn.Outline"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
@@ -406,6 +412,19 @@
                     android:layout_weight="1"
                     android:drawableStart="@drawable/ic_key"
                     android:text="@string/pin_change" />
+
+                <Button
+                    android:id="@+id/btnShutdownNow"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="16sp"
+                    style="@style/Btn.Outline"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:drawableStart="@drawable/ic_power"
+                    android:text="@string/btn_shutdown_now" />
             </LinearLayout>
         </LinearLayout>
         </ScrollView>
