@@ -62,6 +62,10 @@ class TvOffService : AccessibilityService() {
     /** Do kada posle paljenja čekamo da se pojavi Home ekran (pa vraćamo aplikaciju). */
     private var resumeWindowUntil = 0L
     private var resumeTries = 0
+    private var lastResumeAt = 0L
+
+    /** Pauze pre ponovnog otvaranja kad box vrati Home (posle svakog pokušaja duže). */
+    private val RESUME_DELAYS = longArrayOf(800, 1_500, 3_000, 5_000, 8_000, 10_000, 15_000, 20_000)
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -173,9 +177,13 @@ class TvOffService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (pkg in launchers) {
             // Box se upravo upalio i pojavio se Home ekran: vrati poslednju aplikaciju.
-            if (now < resumeWindowUntil && resumeTries < 6) {
+            if (now < resumeWindowUntil && resumeTries < RESUME_DELAYS.size) {
+                if (lastResumeAt > 0L) {
+                    EventLog.add("Vraćeno na Home ${(now - lastResumeAt) / 100 / 10.0} s posle otvaranja")
+                }
+                // Svaki sledeći pokušaj čeka duže, dok box ne prestane da vraća Home.
                 handler.removeCallbacks(resumeRunnable)
-                handler.postDelayed(resumeRunnable, 800L)
+                handler.postDelayed(resumeRunnable, RESUME_DELAYS[resumeTries])
             }
             return
         }
@@ -207,6 +215,11 @@ class TvOffService : AccessibilityService() {
         }
 
         if (isLaunchable(pkg) && Prefs.lastApp(this) != pkg) {
+            // Korisnik je sam otvorio drugu aplikaciju – nastavak više nije potreban.
+            if (resumeWindowUntil > 0L) {
+                resumeWindowUntil = 0L
+                handler.removeCallbacks(resumeRunnable)
+            }
             Prefs.setLastApp(this, pkg)
             EventLog.add("Poslednja aplikacija: $pkg")
         }
@@ -220,7 +233,17 @@ class TvOffService : AccessibilityService() {
         return left != null && left <= 0
     }
 
+    /** Nastavljena aplikacija se zadržala 10 s – nastavak je uspeo, dalji Home je namerni. */
+    private val resumeStableCheck = Runnable {
+        val pkg = Prefs.lastApp(this)
+        if (resumeWindowUntil > 0L && fgPkg != null && fgPkg == pkg) {
+            resumeWindowUntil = 0L
+            EventLog.add("Nastavak uspeo: $pkg ostaje otvoren")
+        }
+    }
+
     private fun goHome() {
+        EventLog.add("TVOffZ vraća na Home")
         performGlobalAction(GLOBAL_ACTION_HOME)
         fgPkg = null
     }
@@ -561,8 +584,9 @@ class TvOffService : AccessibilityService() {
      * (neki boxovi pokažu Home tek nekoliko sekundi posle paljenja).
      */
     private fun startResumeWindow(firstDelay: Long) {
-        resumeWindowUntil = System.currentTimeMillis() + 40_000L
+        resumeWindowUntil = System.currentTimeMillis() + 120_000L
         resumeTries = 0
+        lastResumeAt = 0L
         handler.removeCallbacks(resumeRunnable)
         handler.postDelayed(resumeRunnable, firstDelay)
     }
@@ -588,6 +612,9 @@ class TvOffService : AccessibilityService() {
         val intent = launchIntent(pkg) ?: return skip("$pkg nema ikonicu za pokretanje")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         resumeTries++
+        lastResumeAt = System.currentTimeMillis()
+        handler.removeCallbacks(resumeStableCheck)
+        handler.postDelayed(resumeStableCheck, 10_000L)
         runCatching { startActivity(intent) }
             .onSuccess { EventLog.add("Otvaram poslednju aplikaciju: $pkg") }
             .onFailure { EventLog.add("Greška pri otvaranju $pkg: ${it.message}") }
