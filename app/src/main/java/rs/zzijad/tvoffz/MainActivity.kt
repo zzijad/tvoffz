@@ -108,6 +108,26 @@ class MainActivity : Activity() {
             b.setOnClickListener { update { it.copy(days = it.days xor (1 shl i)) } }
         }
 
+        // Dugo držanje OK na "Testiraj odmah": dnevnik događaja (dijagnostika).
+        findViewById<Button>(R.id.btnTest).setOnLongClickListener {
+            val tv = TextView(this).apply {
+                text = getString(R.string.log_header, Prefs.lastApp(this@MainActivity) ?: "—") +
+                    "\n\n" + EventLog.text()
+                setTextColor(getColor(R.color.text))
+                textSize = 14f
+                setTextIsSelectable(false)
+                isFocusable = true
+                val p = (24 * resources.displayMetrics.density).toInt()
+                setPadding(p, p, p, p)
+            }
+            android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(R.string.log_title)
+                .setView(android.widget.ScrollView(this).apply { addView(tv) })
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            true
+        }
+
         findViewById<Button>(R.id.btnTest).setOnClickListener {
             val s = TvOffService.instance
             if (s == null) {

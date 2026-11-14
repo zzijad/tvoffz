@@ -59,6 +59,10 @@ class TvOffService : AccessibilityService() {
 
     private val resumeRunnable = Runnable { resumeLastApp() }
 
+    /** Do kada posle paljenja čekamo da se pojavi Home ekran (pa vraćamo aplikaciju). */
+    private var resumeWindowUntil = 0L
+    private var resumeTries = 0
+
     private val ticker = object : Runnable {
         override fun run() {
             tick()
@@ -120,14 +124,33 @@ class TvOffService : AccessibilityService() {
         // Podešavanja imaju rezervni "FallbackHome" (negativan prioritet). Nije pravi launcher,
         // a da se računa kao launcher, Podešavanja se noću ne bi blokirala.
         @Suppress("DEPRECATION")
-        launchers = packageManager.queryIntentActivities(home, 0)
+        val l = packageManager.queryIntentActivities(home, 0)
             .filter { it.priority >= 0 && !it.activityInfo.name.contains("FallbackHome") }
-            .map { it.activityInfo.packageName }.toSet()
+            .map { it.activityInfo.packageName }.toMutableSet()
+        // Podrazumevani Home ekran (ako je izabran) je uvek launcher.
+        @Suppress("DEPRECATION")
+        packageManager.resolveActivity(home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+            ?.activityInfo?.packageName
+            ?.takeIf { it != "android" }
+            ?.let { l += it }
+        launchers = l
         val s = mutableSetOf(packageName, "android", "com.android.systemui")
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.inputMethodList.forEach { s += it.packageName }
         ignored = s
+        EventLog.add("Servis pokrenut. Launcher: " + launchers.joinToString())
     }
+
+    private val launchable = mutableMapOf<String, Boolean>()
+
+    /** Da li aplikacija ima ikonicu za pokretanje (pravu aplikaciju, ne sistemski prozor). */
+    private fun isLaunchable(pkg: String): Boolean = launchable.getOrPut(pkg) {
+        launchIntent(pkg) != null
+    }
+
+    private fun launchIntent(pkg: String): Intent? =
+        packageManager.getLeanbackLaunchIntentForPackage(pkg)
+            ?: packageManager.getLaunchIntentForPackage(pkg)
 
     private fun appName(pkg: String): String = runCatching {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -144,10 +167,17 @@ class TvOffService : AccessibilityService() {
         // Toast poruka aplikacije iz pozadine nije otvaranje te aplikacije.
         if (event.className?.toString()?.startsWith("android.widget.Toast") == true) return
         countUsage()
+        if (pkg != fgPkg) EventLog.add("Na ekranu: $pkg")
         fgPkg = pkg
-        if (pkg in launchers) return
-
         val now = System.currentTimeMillis()
+        if (pkg in launchers) {
+            // Box se upravo upalio i pojavio se Home ekran: vrati poslednju aplikaciju.
+            if (now < resumeWindowUntil && resumeTries < 3) {
+                handler.removeCallbacks(resumeRunnable)
+                handler.postDelayed(resumeRunnable, 800L)
+            }
+            return
+        }
 
         // Noćno zaključavanje
         if (now >= Prefs.unlockedUntil(this)) {
@@ -175,7 +205,10 @@ class TvOffService : AccessibilityService() {
             return
         }
 
-        Prefs.setLastApp(this, pkg)
+        if (isLaunchable(pkg) && Prefs.lastApp(this) != pkg) {
+            Prefs.setLastApp(this, pkg)
+            EventLog.add("Poslednja aplikacija: $pkg")
+        }
     }
 
     /** Da li je aplikacija sada blokirana (noćno zaključavanje ili potrošen limit). */
@@ -432,7 +465,9 @@ class TvOffService : AccessibilityService() {
      */
     private fun onScreenOff() {
         countUsage()
+        EventLog.add("Ekran ugašen" + if (dreaming) " (posle screensavera)" else "")
         handler.removeCallbacks(resumeRunnable)
+        resumeWindowUntil = 0L
         val wasDreaming = dreaming
         dreaming = false
         val cfg = Prefs.load(this)
@@ -444,23 +479,35 @@ class TvOffService : AccessibilityService() {
         if (wasDreaming) return
 
         guardPending = true
+        EventLog.add("Gašenje bez PIN-a – budim box")
         // Drži procesor budnim dok ne probudimo ekran.
         pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvoffz:guard").acquire(5_000L)
         handler.postDelayed({ wakeWithGuard() }, 800L)
     }
 
     private fun onScreenOn() {
+        EventLog.add("Ekran upaljen" + if (guardPending) " (PIN ekran zaštite)" else "")
         // Kad zaštita budi box, poslednja aplikacija se otvara tek kad se PIN ekran zatvori.
         if (guardPending) return
-        handler.removeCallbacks(resumeRunnable)
-        handler.postDelayed(resumeRunnable, 2_500L)
+        startResumeWindow(2_500L)
     }
 
     /** PIN ekran zaštite je zatvoren bez gašenja (Nazad ili isteklo vreme). */
     fun guardDismissed() {
         guardPending = false
+        EventLog.add("PIN ekran zatvoren bez gašenja")
+        startResumeWindow(800L)
+    }
+
+    /**
+     * Narednih 20 s: kad god se pojavi Home ekran, vrati poslednju aplikaciju
+     * (neki boxovi pokažu Home tek nekoliko sekundi posle paljenja).
+     */
+    private fun startResumeWindow(firstDelay: Long) {
+        resumeWindowUntil = System.currentTimeMillis() + 20_000L
+        resumeTries = 0
         handler.removeCallbacks(resumeRunnable)
-        handler.postDelayed(resumeRunnable, 800L)
+        handler.postDelayed(resumeRunnable, firstDelay)
     }
 
     // ------------------------------------------------------------------
@@ -468,19 +515,23 @@ class TvOffService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun resumeLastApp() {
-        if (!pm.isInteractive) return
-        if (!Prefs.load(this).resumeLast) return
-        // Box se probudio pravo u aplikaciju – ništa ne treba.
+        fun skip(why: String) = EventLog.add("Nastavak preskočen: $why")
+        if (!pm.isInteractive) return skip("ekran nije upaljen")
+        if (!Prefs.load(this).resumeLast) return skip("opcija je isključena")
+        val pkg = Prefs.lastApp(this) ?: return skip("nema zapamćene aplikacije")
+        // Box se probudio pravo u neku aplikaciju – ništa ne treba.
         val fg = fgPkg
-        if (fg != null && fg !in launchers) return
-        if (countdownView != null || blockView != null) return
-        val pkg = Prefs.lastApp(this) ?: return
-        if (isBlocked(pkg)) return
-        val intent = packageManager.getLeanbackLaunchIntentForPackage(pkg)
-            ?: packageManager.getLaunchIntentForPackage(pkg)
-            ?: return
+        if (fg != null && fg !in launchers && isLaunchable(fg)) {
+            return skip("već je otvorena aplikacija $fg")
+        }
+        if (countdownView != null || blockView != null) return skip("prikazano je odbrojavanje/blokada")
+        if (isBlocked(pkg)) return skip("$pkg je zaključana (noćno zaključavanje ili limit)")
+        val intent = launchIntent(pkg) ?: return skip("$pkg nema ikonicu za pokretanje")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        resumeTries++
         runCatching { startActivity(intent) }
+            .onSuccess { EventLog.add("Otvaram poslednju aplikaciju: $pkg") }
+            .onFailure { EventLog.add("Greška pri otvaranju $pkg: ${it.message}") }
     }
 
     private fun wakeWithGuard() {
