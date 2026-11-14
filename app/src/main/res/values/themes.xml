@@ -8,6 +8,13 @@
         <item name="android:windowFullscreen">true</item>
     </style>
 
+    <!-- Nevidljiva aktivnost koja samo pali ekran. -->
+    <style name="Theme.TVOffZ.Transparent" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoDisplay">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
     <!-- Dugmad za D-pad: jasan okvir fokusa, bez senke i velikih slova. -->
     <style name="Btn">
         <item name="android:background">@drawable/bg_btn</item>

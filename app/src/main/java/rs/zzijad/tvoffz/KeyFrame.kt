@@ -9,7 +9,11 @@ class KeyFrame(context: Context) : FrameLayout(context) {
 
     var onBack: (() -> Unit)? = null
 
+    /** Poziva se na svaki pritisak tastera (npr. da se produži vreme pre automatskog zatvaranja). */
+    var onAnyKey: (() -> Unit)? = null
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) onAnyKey?.invoke()
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP) onBack?.invoke()
             return true

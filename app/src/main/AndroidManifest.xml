@@ -57,6 +57,7 @@
             android:name=".SleepGuardActivity"
             android:excludeFromRecents="true"
             android:exported="false"
+            android:theme="@style/Theme.TVOffZ.Transparent"
             android:launchMode="singleTask"
             android:taskAffinity="rs.zzijad.tvoffz.guard" />
 

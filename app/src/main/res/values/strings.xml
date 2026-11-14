@@ -102,6 +102,7 @@
     <string name="guard_title">Gašenje je zaključano</string>
     <string name="guard_desc">Unesi PIN da ugasiš box.</string>
     <string name="guard_back">Nazad = nastavi gledanje</string>
+    <string name="guard_continue">Nastavi gledanje</string>
     <string name="pin_clear">Obriši sve</string>
     <string name="pin_back">Obriši poslednju cifru</string>
 </resources>

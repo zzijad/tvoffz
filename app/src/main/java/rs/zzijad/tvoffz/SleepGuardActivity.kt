@@ -5,20 +5,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
 import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.TextView
 
 /**
- * Prikazuje se kad neko ugasi box dugmetom za napajanje van rasporeda.
- * Tačan PIN gasi box; Nazad (ili 60 s bez unosa) vraća na ono što se gledalo.
+ * Prozirna aktivnost koja samo pali ekran posle gašenja dugmetom za napajanje.
+ * Sam PIN ekran prikazuje servis kao prozor preko svega (launcher ne može da ga prekrije).
  */
 class SleepGuardActivity : Activity() {
-
-    private val handler = Handler(Looper.getMainLooper())
-    private val autoClose = Runnable { finish() }
-    private var pinOk = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,49 +25,6 @@ class SleepGuardActivity : Activity() {
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
             )
         }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        setContentView(R.layout.activity_pin)
-
-        findViewById<TextView>(R.id.tvPinTitle).setText(R.string.guard_title)
-        findViewById<TextView>(R.id.tvPinDesc).setText(R.string.guard_desc)
-        findViewById<TextView>(R.id.tvPinStep).setText(R.string.guard_back)
-
-        val pad = PinPadView(this)
-        findViewById<FrameLayout>(R.id.pinBox).addView(
-            pad,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER,
-            ),
-        )
-        pad.setTitle(getString(R.string.pin_enter_caps))
-        pad.onComplete = { p ->
-            restartAutoClose()
-            pad.verify(p) {
-                pinOk = true
-                finish()
-                handler.postDelayed({ TvOffService.instance?.sleepNow() }, 400L)
-            }
-        }
-        pad.post { pad.focusFirst() }
-        restartAutoClose()
-    }
-
-    override fun onUserInteraction() {
-        super.onUserInteraction()
-        restartAutoClose()
-    }
-
-    private fun restartAutoClose() {
-        handler.removeCallbacks(autoClose)
-        handler.postDelayed(autoClose, 60_000L)
-    }
-
-    override fun onDestroy() {
-        handler.removeCallbacks(autoClose)
-        // Zatvoreno bez gašenja: vrati poslednju aplikaciju.
-        if (!pinOk) TvOffService.instance?.guardDismissed()
-        super.onDestroy()
+        Handler(Looper.getMainLooper()).postDelayed({ finish() }, 1_500L)
     }
 }
